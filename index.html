@@ -110,11 +110,69 @@
   .offline-dot{width:8px;height:8px;border-radius:50%;background:#E24B4A;display:inline-block;margin-right:6px;}
   .divider-or{display:flex;align-items:center;gap:12px;margin:16px 0;color:var(--text3);font-size:13px;}
   .divider-or::before,.divider-or::after{content:'';flex:1;height:0.5px;background:var(--border2);}
+
+  /* LOADING OVERLAY */
+  #loading-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;align-items:center;justify-content:center;flex-direction:column;}
+  #loading-overlay.show{display:flex;}
+  .loading-card{background:var(--bg);border-radius:var(--radius-lg);padding:32px 40px;display:flex;flex-direction:column;align-items:center;gap:16px;min-width:200px;box-shadow:0 8px 32px rgba(0,0,0,0.2);}
+  .loading-card .big-spinner{width:36px;height:36px;border:3px solid var(--border2);border-top-color:var(--purple-800);border-radius:50%;animation:spin 0.7s linear infinite;}
+  .loading-card p{font-size:15px;font-weight:500;color:var(--text);text-align:center;}
+  .btn-loading{position:relative;overflow:hidden;}
+  .btn-loading::after{content:'';position:absolute;bottom:0;left:0;height:3px;width:40%;background:rgba(255,255,255,0.6);animation:btnprogress 1.2s ease-in-out infinite;}
+  @keyframes btnprogress{0%{left:-40%}100%{left:110%}}
 </style>
 </head>
 <body>
 <div id="app">
 <div id="toast" class="toast"></div>
+
+<!-- LOADING OVERLAY -->
+<div id="loading-overlay">
+  <div class="loading-card">
+    <div class="big-spinner"></div>
+    <p id="loading-msg">Please wait…</p>
+  </div>
+</div>
+
+<!-- EDIT EXPENSE -->
+<div id="s-edit-expense" class="screen">
+  <div class="top-bar">
+    <button class="back-btn" onclick="go('s-trip')"><i class="ti ti-arrow-left"></i></button>
+    <h2>Edit expense</h2>
+  </div>
+  <div class="page-pad">
+    <input type="hidden" id="ee-id" />
+    <div class="card">
+      <label>Description</label>
+      <input id="ee-desc" type="text" autocomplete="off" />
+      <label>Amount</label>
+      <div style="display:flex;gap:8px;">
+        <select id="ee-currency" style="width:100px;flex-shrink:0;"></select>
+        <input id="ee-amount" type="number" min="0" step="0.01" style="flex:1;" />
+      </div>
+      <label>Paid by</label>
+      <select id="ee-paidby"></select>
+    </div>
+    <div class="card">
+      <p class="section-label">Split between</p>
+      <div class="split-mode-row">
+        <button class="split-btn active" id="ee-sb-equal" onclick="setEditSplitMode('equal')">Everyone equally</button>
+        <button class="split-btn" id="ee-sb-custom" onclick="setEditSplitMode('custom')">Select pax</button>
+      </div>
+      <div id="ee-equal-info" style="margin-top:10px;font-size:13px;color:var(--text2);">
+        <i class="ti ti-users" style="vertical-align:-2px;margin-right:4px;"></i>Split equally among all members
+      </div>
+      <div id="ee-custom-pax" style="display:none;margin-top:10px;">
+        <p style="font-size:13px;color:var(--text2);margin-bottom:4px;">Who shares this cost?</p>
+        <div id="ee-pax-checks"></div>
+        <p id="ee-per-pax" style="font-size:13px;color:var(--purple-800);margin-top:12px;font-weight:600;"></p>
+      </div>
+    </div>
+    <button class="btn-primary" id="btn-update-expense" onclick="updateExpense()"><i class="ti ti-check"></i> Update expense</button>
+  </div>
+</div>
+
+
 
 <!-- HOME -->
 <div id="s-home" class="screen active">
@@ -270,13 +328,24 @@ function showToast(msg, dur=2200) {
   setTimeout(() => t.classList.remove('show'), dur);
 }
 
+function showOverlay(msg) {
+  document.getElementById('loading-msg').textContent = msg || 'Please wait…';
+  document.getElementById('loading-overlay').classList.add('show');
+}
+function hideOverlay() {
+  document.getElementById('loading-overlay').classList.remove('show');
+}
 function setLoading(btnId, loading, label) {
   const btn = document.getElementById(btnId);
   if (!btn) return;
   btn.disabled = loading;
-  btn.innerHTML = loading
-    ? '<div class="spinner"></div>'
-    : label;
+  if (loading) {
+    btn.classList.add('btn-loading');
+    btn.innerHTML = label + ' <div class="spinner" style="width:16px;height:16px;border-width:2px;"></div>';
+  } else {
+    btn.classList.remove('btn-loading');
+    btn.innerHTML = label;
+  }
 }
 
 // ─── API ──────────────────────────────────────────────────
@@ -349,7 +418,7 @@ function renderHome() {
 async function joinTrip() {
   const code = document.getElementById('join-code').value.trim().toUpperCase();
   if (code.length !== 6) { showToast('Enter a 6-letter code'); return; }
-  setLoading('btn-join', true, '');
+  showOverlay('Loading trip…');
   try {
     const data = await apiGet({ action: 'getTrip', code });
     if (!data.ok) { showToast(data.error || 'Trip not found'); return; }
@@ -362,7 +431,7 @@ async function joinTrip() {
     activeTab = 'expenses';
     go('s-trip');
   } catch { showToast('Connection error — try again'); }
-  finally { setLoading('btn-join', false, '<i class="ti ti-door-enter"></i> Load trip'); }
+  finally { hideOverlay(); }
 }
 
 // ─── NEW TRIP ─────────────────────────────────────────────
@@ -399,7 +468,7 @@ async function createTrip() {
   const currency = document.getElementById('nt-currency').value;
   if (!name) { showToast('Enter a trip name'); return; }
   if (newMembers.length < 2) { showToast('Add at least 2 members'); return; }
-  setLoading('btn-create-trip', true, '');
+  showOverlay('Creating trip…');
   try {
     const data = await apiPost({ action: 'createTrip', name, currency, members: [...newMembers] });
     if (!data.ok) { showToast(data.error || 'Failed to create trip'); return; }
@@ -412,7 +481,7 @@ async function createTrip() {
     showToast(`Trip created! Code: ${data.code}`, 3500);
     go('s-trip');
   } catch { showToast('Connection error — try again'); }
-  finally { setLoading('btn-create-trip', false, '<i class="ti ti-check"></i> Create trip'); }
+  finally { hideOverlay(); }
 }
 
 // ─── OPEN EXISTING TRIP ───────────────────────────────────
@@ -478,11 +547,14 @@ function renderExpenses() {
             <p class="exp-title">${e.desc}</p>
             <p class="exp-meta">Paid by ${e.paidBy} · ${pax.length} pax</p>
           </div>
-          <div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
             <p class="exp-amt">${e.currency} ${parseFloat(e.amount).toFixed(2)}</p>
             ${e.currency !== baseCur ? `<p class="exp-sub">≈${baseCur} ${base.toFixed(2)}</p>` : ''}
             <p class="exp-sub">${baseCur} ${pp}/pax</p>
-            <button class="btn-danger" onclick="deleteExpense('${e.id}')" style="padding:4px 0;font-size:16px;"><i class="ti ti-trash"></i></button>
+            <div style="display:flex;gap:4px;margin-top:4px;">
+              <button onclick="openEditExpense('${e.id}')" style="padding:5px 10px;background:var(--bg2);border:0.5px solid var(--border2);border-radius:8px;font-size:13px;color:var(--text2);cursor:pointer;"><i class="ti ti-pencil"></i></button>
+              <button class="btn-danger" onclick="deleteExpense('${e.id}')" style="padding:5px 8px;font-size:16px;"><i class="ti ti-trash"></i></button>
+            </div>
           </div>
         </div>`;
       }).join('') + '</div></div>';
@@ -707,7 +779,7 @@ async function saveExpense() {
     splitAmong = [...document.querySelectorAll('#ae-pax-checks input:checked')].map(c=>c.value);
     if (!splitAmong.length) { showToast('Select at least 1 person'); return; }
   }
-  setLoading('btn-save-expense', true, '');
+  showOverlay('Saving expense…');
   try {
     const data = await apiPost({
       action: 'addExpense',
@@ -729,7 +801,101 @@ async function saveExpense() {
     showToast(`${desc} saved ✓`);
     go('s-trip');
   } catch { showToast('Connection error — try again'); }
-  finally { setLoading('btn-save-expense', false, '<i class="ti ti-device-floppy"></i> Save expense'); }
+  finally { hideOverlay(); }
+}
+
+
+// ─── EDIT EXPENSE ─────────────────────────────────────────
+let editSplitMode = 'equal';
+
+function openEditExpense(expenseId) {
+  const e = cur.expenses.find(x => x.id === expenseId);
+  if (!e) return;
+  const baseCur = cur.trip.currency;
+  editSplitMode = e.splitAmong ? 'custom' : 'equal';
+
+  document.getElementById('ee-id').value = e.id;
+  document.getElementById('ee-desc').value = e.desc;
+  document.getElementById('ee-amount').value = e.amount;
+  document.getElementById('ee-currency').innerHTML = CURRENCIES.map(c=>`<option${c===e.currency?' selected':''}>${c}</option>`).join('');
+  document.getElementById('ee-paidby').innerHTML = cur.members.map(m=>`<option${m===e.paidBy?' selected':''}>${m}</option>`).join('');
+
+  document.getElementById('ee-sb-equal').classList.toggle('active', editSplitMode==='equal');
+  document.getElementById('ee-sb-custom').classList.toggle('active', editSplitMode==='custom');
+  document.getElementById('ee-equal-info').style.display = editSplitMode==='equal'?'':'none';
+  document.getElementById('ee-custom-pax').style.display = editSplitMode==='custom'?'':'none';
+
+  // render checkboxes
+  const selectedPax = e.splitAmong || cur.members;
+  document.getElementById('ee-pax-checks').innerHTML = cur.members.map(m => {
+    const sid = `eck_${m.replace(/\W/g,'_')}`;
+    const checked = selectedPax.includes(m);
+    return `<div class="check-row" onclick="toggleEck('${sid}')">
+      <input type="checkbox" id="${sid}" value="${m}" ${checked?'checked':''} />
+      <div class="ck-box ${checked?'on':''}" id="v${sid}"></div>
+      <span class="ck-label">${m}</span>
+    </div>`;
+  }).join('');
+  updateEditPerPax();
+
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('s-edit-expense').classList.add('active');
+  window.scrollTo(0,0);
+}
+
+function toggleEck(sid) {
+  const cb = document.getElementById(sid);
+  const vis = document.getElementById('v'+sid);
+  cb.checked = !cb.checked;
+  vis.classList.toggle('on', cb.checked);
+  updateEditPerPax();
+}
+
+function setEditSplitMode(mode) {
+  editSplitMode = mode;
+  document.getElementById('ee-sb-equal').classList.toggle('active', mode==='equal');
+  document.getElementById('ee-sb-custom').classList.toggle('active', mode==='custom');
+  document.getElementById('ee-equal-info').style.display = mode==='equal'?'':'none';
+  document.getElementById('ee-custom-pax').style.display = mode==='custom'?'':'none';
+  updateEditPerPax();
+}
+
+function updateEditPerPax() {
+  const amt = parseFloat(document.getElementById('ee-amount').value)||0;
+  const checked = [...document.querySelectorAll('#ee-pax-checks input:checked')];
+  const n = editSplitMode==='custom' ? checked.length : cur.members.length;
+  const cc = document.getElementById('ee-currency').value;
+  const pp = document.getElementById('ee-per-pax');
+  if (pp) pp.textContent = n>0&&amt>0 ? `${cc} ${(amt/n).toFixed(2)} per person (${n} pax)` : '';
+}
+
+async function updateExpense() {
+  const expenseId = document.getElementById('ee-id').value;
+  const desc = document.getElementById('ee-desc').value.trim();
+  const amount = parseFloat(document.getElementById('ee-amount').value);
+  const currency = document.getElementById('ee-currency').value;
+  const paidBy = document.getElementById('ee-paidby').value;
+  if (!desc) { showToast('Enter a description'); return; }
+  if (!amount || amount <= 0) { showToast('Enter a valid amount'); return; }
+  let splitAmong = null;
+  if (editSplitMode === 'custom') {
+    splitAmong = [...document.querySelectorAll('#ee-pax-checks input:checked')].map(c=>c.value);
+    if (!splitAmong.length) { showToast('Select at least 1 person'); return; }
+  }
+  showOverlay('Updating expense…');
+  try {
+    // delete old, add new
+    const del = await apiPost({ action: 'deleteExpense', code: cur.trip.code, expenseId });
+    if (!del.ok) { showToast(del.error || 'Update failed'); return; }
+    const add = await apiPost({ action: 'addExpense', code: cur.trip.code, desc, amount, currency, paidBy, splitAmong, clientTs: Date.now() });
+    if (!add.ok) { showToast(add.error || 'Update failed'); return; }
+    // update local
+    const idx = cur.expenses.findIndex(e => e.id === expenseId);
+    if (idx !== -1) cur.expenses[idx] = { id: add.id, desc, amount, currency, paidBy, splitAmong, createdAt: new Date().toISOString() };
+    showToast('Updated ✓');
+    go('s-trip');
+  } catch { showToast('Connection error — try again'); }
+  finally { hideOverlay(); }
 }
 
 // ─── UTILS ────────────────────────────────────────────────
