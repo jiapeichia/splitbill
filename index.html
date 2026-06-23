@@ -152,6 +152,8 @@
       </div>
       <label>Paid by</label>
       <select id="ee-paidby"></select>
+      <label>Category</label>
+      <select id="ee-category"></select>
     </div>
     <div class="card">
       <p class="section-label">Split between</p>
@@ -283,6 +285,8 @@
       </div>
       <label>Paid by</label>
       <select id="ae-paidby"></select>
+      <label>Category</label>
+      <select id="ae-category"></select>
     </div>
     <div class="card">
       <p class="section-label">Split between</p>
@@ -311,6 +315,27 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbzfKwiu5VFFB2SopXJA41eR
 // ──────────────────────────────────────────────────────────
 
 const CURRENCIES=['MYR','SGD','USD','JPY','EUR','THB','IDR','AUD','GBP','KRW','CNY'];
+const CATEGORIES=[
+  {v:'food',     label:'Food & Drinks',  icon:'🍽️'},
+  {v:'hotel',    label:'Hotel / Stay',   icon:'🏨'},
+  {v:'flight',   label:'Flight',         icon:'✈️'},
+  {v:'ticket',   label:'Ticket / Entry', icon:'🎟️'},
+  {v:'transport',label:'Transport',      icon:'🚌'},
+  {v:'shopping', label:'Shopping',       icon:'🛍️'},
+  {v:'activity', label:'Activity',       icon:'🎭'},
+  {v:'medical',  label:'Medical',        icon:'💊'},
+  {v:'simdata',  label:'SIM / Data',     icon:'📡'},
+  {v:'gift',     label:'Gift',           icon:'🎁'},
+  {v:'others',   label:'Others',         icon:'💰'},
+];
+// Currency-based max cap
+const LARGE_CCY = ['JPY','IDR','KRW'];
+function maxCap(ccy){ return LARGE_CCY.includes(ccy) ? 999999999 : 999999; }
+function catIcon(v){ const c=CATEGORIES.find(x=>x.v===v); return c?c.icon:'💰'; }
+function catLabel(v){ const c=CATEGORIES.find(x=>x.v===v); return c?c.label:'Others'; }
+function categoryOptions(sel){
+  return CATEGORIES.map(c=>`<option value="${c.v}"${c.v===sel?' selected':''}>${c.icon} ${c.label}</option>`).join('');
+}
 const FX={MYR:1,SGD:3.52,USD:4.72,JPY:0.031,EUR:5.20,THB:0.13,IDR:0.00030,AUD:3.02,GBP:5.98,KRW:0.0034,CNY:0.65};
 
 // Local cache of trips (for home screen list, stores trip code + name + currency only)
@@ -544,8 +569,8 @@ function renderExpenses() {
         const pp = (base / pax.length).toFixed(2);
         return `<div class="expense-row">
           <div style="flex:1;padding-right:10px;">
-            <p class="exp-title">${e.desc}</p>
-            <p class="exp-meta">Paid by ${e.paidBy} · ${pax.length} pax</p>
+            <p class="exp-title">${catIcon(e.category)} ${e.desc}</p>
+            <p class="exp-meta">Paid by ${e.paidBy} · ${pax.length} pax · <span style="color:var(--text3);font-size:11px;">${catLabel(e.category)}</span></p>
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
             <p class="exp-amt">${e.currency} ${parseFloat(e.amount).toFixed(2)}</p>
@@ -724,6 +749,12 @@ function setupAddExpense() {
   document.getElementById('conflict-banner').style.display = 'none';
   document.getElementById('ae-currency').innerHTML = CURRENCIES.map(c=>`<option${c===cur.trip.currency?' selected':''}>${c}</option>`).join('');
   document.getElementById('ae-paidby').innerHTML = cur.members.map(m=>`<option>${m}</option>`).join('');
+  document.getElementById('ae-category').innerHTML = categoryOptions('food');
+  // set max cap on amount input
+  const aeAmt = document.getElementById('ae-amount');
+  aeAmt.max = maxCap(cur.trip.currency);
+  aeAmt.oninput = function(){ updatePerPax(); const cap=maxCap(document.getElementById('ae-currency').value); if(parseFloat(this.value)>cap)this.value=cap; };
+  document.getElementById('ae-currency').onchange = function(){ updatePerPax(); document.getElementById('ae-amount').max=maxCap(this.value); };
   renderPaxChecks(); updatePerPax();
 }
 
@@ -772,8 +803,10 @@ async function saveExpense() {
   const amount = parseFloat(document.getElementById('ae-amount').value);
   const currency = document.getElementById('ae-currency').value;
   const paidBy = document.getElementById('ae-paidby').value;
+  const category = document.getElementById('ae-category').value;
   if (!desc) { showToast('Enter a description'); return; }
   if (!amount || amount <= 0) { showToast('Enter a valid amount'); return; }
+  if (amount > maxCap(currency)) { showToast(`Max amount is ${maxCap(currency).toLocaleString()} for ${currency}`); return; }
   let splitAmong = null;
   if (splitMode === 'custom') {
     splitAmong = [...document.querySelectorAll('#ae-pax-checks input:checked')].map(c=>c.value);
@@ -784,7 +817,7 @@ async function saveExpense() {
     const data = await apiPost({
       action: 'addExpense',
       code: cur.trip.code,
-      desc, amount, currency, paidBy, splitAmong,
+      desc, amount, currency, paidBy, category, splitAmong,
       clientTs: Date.now()
     });
     if (data.conflict) {
@@ -797,7 +830,7 @@ async function saveExpense() {
     }
     if (!data.ok) { showToast(data.error || 'Failed to save'); return; }
     // Add to local cur immediately for fast UI
-    cur.expenses.push({ id: data.id, desc, amount, currency, paidBy, splitAmong, createdAt: new Date().toISOString() });
+    cur.expenses.push({ id: data.id, desc, amount, currency, paidBy, category, splitAmong, createdAt: new Date().toISOString() });
     showToast(`${desc} saved ✓`);
     go('s-trip');
   } catch { showToast('Connection error — try again'); }
@@ -819,6 +852,11 @@ function openEditExpense(expenseId) {
   document.getElementById('ee-amount').value = e.amount;
   document.getElementById('ee-currency').innerHTML = CURRENCIES.map(c=>`<option${c===e.currency?' selected':''}>${c}</option>`).join('');
   document.getElementById('ee-paidby').innerHTML = cur.members.map(m=>`<option${m===e.paidBy?' selected':''}>${m}</option>`).join('');
+  document.getElementById('ee-category').innerHTML = categoryOptions(e.category||'others');
+  const eeAmt = document.getElementById('ee-amount');
+  eeAmt.max = maxCap(e.currency);
+  eeAmt.oninput = function(){ updateEditPerPax(); const cap=maxCap(document.getElementById('ee-currency').value); if(parseFloat(this.value)>cap)this.value=cap; };
+  document.getElementById('ee-currency').onchange = function(){ updateEditPerPax(); document.getElementById('ee-amount').max=maxCap(this.value); };
 
   document.getElementById('ee-sb-equal').classList.toggle('active', editSplitMode==='equal');
   document.getElementById('ee-sb-custom').classList.toggle('active', editSplitMode==='custom');
@@ -875,8 +913,10 @@ async function updateExpense() {
   const amount = parseFloat(document.getElementById('ee-amount').value);
   const currency = document.getElementById('ee-currency').value;
   const paidBy = document.getElementById('ee-paidby').value;
+  const category = document.getElementById('ee-category').value;
   if (!desc) { showToast('Enter a description'); return; }
   if (!amount || amount <= 0) { showToast('Enter a valid amount'); return; }
+  if (amount > maxCap(currency)) { showToast(`Max amount is ${maxCap(currency).toLocaleString()} for ${currency}`); return; }
   let splitAmong = null;
   if (editSplitMode === 'custom') {
     splitAmong = [...document.querySelectorAll('#ee-pax-checks input:checked')].map(c=>c.value);
@@ -887,11 +927,11 @@ async function updateExpense() {
     // delete old, add new
     const del = await apiPost({ action: 'deleteExpense', code: cur.trip.code, expenseId });
     if (!del.ok) { showToast(del.error || 'Update failed'); return; }
-    const add = await apiPost({ action: 'addExpense', code: cur.trip.code, desc, amount, currency, paidBy, splitAmong, clientTs: Date.now() });
+    const add = await apiPost({ action: 'addExpense', code: cur.trip.code, desc, amount, currency, paidBy, category, splitAmong, clientTs: Date.now() });
     if (!add.ok) { showToast(add.error || 'Update failed'); return; }
     // update local
     const idx = cur.expenses.findIndex(e => e.id === expenseId);
-    if (idx !== -1) cur.expenses[idx] = { id: add.id, desc, amount, currency, paidBy, splitAmong, createdAt: new Date().toISOString() };
+    if (idx !== -1) cur.expenses[idx] = { id: add.id, desc, amount, currency, paidBy, category, splitAmong, createdAt: new Date().toISOString() };
     showToast('Updated ✓');
     go('s-trip');
   } catch { showToast('Connection error — try again'); }
