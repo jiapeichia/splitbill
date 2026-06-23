@@ -143,7 +143,9 @@
   <div class="page-pad">
     <input type="hidden" id="ee-id" />
     <div class="card">
-      <label>Description</label>
+      <label>Category</label>
+      <select id="ee-category"></select>
+      <label>Description <span style="font-size:12px;color:var(--text3);font-weight:400;">(optional)</span></label>
       <input id="ee-desc" type="text" autocomplete="off" />
       <label>Amount</label>
       <div style="display:flex;gap:8px;">
@@ -152,8 +154,6 @@
       </div>
       <label>Paid by</label>
       <select id="ee-paidby"></select>
-      <label>Category</label>
-      <select id="ee-category"></select>
     </div>
     <div class="card">
       <p class="section-label">Split between</p>
@@ -276,8 +276,10 @@
   <div class="page-pad">
     <div id="conflict-banner" style="display:none;" class="conflict-banner"></div>
     <div class="card">
-      <label>Description</label>
-      <input id="ae-desc" type="text" placeholder="e.g. Hotel, Dinner, Bus tickets" autocomplete="off" />
+      <label>Category</label>
+      <select id="ae-category"></select>
+      <label>Description <span style="font-size:12px;color:var(--text3);font-weight:400;">(optional)</span></label>
+      <input id="ae-desc" type="text" placeholder="e.g. Nasi lemak, Grab to hotel…" autocomplete="off" />
       <label>Amount</label>
       <div style="display:flex;gap:8px;">
         <select id="ae-currency" style="width:100px;flex-shrink:0;"></select>
@@ -285,8 +287,6 @@
       </div>
       <label>Paid by</label>
       <select id="ae-paidby"></select>
-      <label>Category</label>
-      <select id="ae-category"></select>
     </div>
     <div class="card">
       <p class="section-label">Split between</p>
@@ -311,7 +311,7 @@
 <script>
 // ─── CONFIG ───────────────────────────────────────────────
 // Replace this with your deployed Apps Script Web App URL
-const API_URL = 'https://script.google.com/macros/s/AKfycbyWe-Tbdlpjj1X4e-CHP-7MCoIa_JNoj8vIEoo-JJY4bI-7JJMJdkZysH_odauGBDaC/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbzfKwiu5VFFB2SopXJA41eR0xDPtMhmGNZp8Wy-acAYeWIewVBvQOPyKCqIROkwm0qJ/exec';
 // ──────────────────────────────────────────────────────────
 
 const CURRENCIES=['MYR','SGD','USD','JPY','EUR','THB','IDR','AUD','GBP','KRW','CNY'];
@@ -569,7 +569,7 @@ function renderExpenses() {
         const pp = (base / pax.length).toFixed(2);
         return `<div class="expense-row">
           <div style="flex:1;padding-right:10px;">
-            <p class="exp-title">${catIcon(e.category)} ${e.desc}</p>
+            <p class="exp-title">${catIcon(e.category)} ${e.desc || catLabel(e.category)}</p>
             <p class="exp-meta">Paid by ${e.paidBy} · ${pax.length} pax · <span style="color:var(--text3);font-size:11px;">${catLabel(e.category)}</span></p>
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
@@ -804,7 +804,6 @@ async function saveExpense() {
   const currency = document.getElementById('ae-currency').value;
   const paidBy = document.getElementById('ae-paidby').value;
   const category = document.getElementById('ae-category').value;
-  if (!desc) { showToast('Enter a description'); return; }
   if (!amount || amount <= 0) { showToast('Enter a valid amount'); return; }
   if (amount > maxCap(currency)) { showToast(`Max amount is ${maxCap(currency).toLocaleString()} for ${currency}`); return; }
   let splitAmong = null;
@@ -831,7 +830,7 @@ async function saveExpense() {
     if (!data.ok) { showToast(data.error || 'Failed to save'); return; }
     // Add to local cur immediately for fast UI
     cur.expenses.push({ id: data.id, desc, amount, currency, paidBy, category, splitAmong, createdAt: new Date().toISOString() });
-    showToast(`${desc} saved ✓`);
+    showToast(`${desc || catLabel(category)} saved ✓`);
     go('s-trip');
   } catch { showToast('Connection error — try again'); }
   finally { hideOverlay(); }
@@ -914,7 +913,6 @@ async function updateExpense() {
   const currency = document.getElementById('ee-currency').value;
   const paidBy = document.getElementById('ee-paidby').value;
   const category = document.getElementById('ee-category').value;
-  if (!desc) { showToast('Enter a description'); return; }
   if (!amount || amount <= 0) { showToast('Enter a valid amount'); return; }
   if (amount > maxCap(currency)) { showToast(`Max amount is ${maxCap(currency).toLocaleString()} for ${currency}`); return; }
   let splitAmong = null;
